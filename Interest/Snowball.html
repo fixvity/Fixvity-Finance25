@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Debt Snowball Calculator – Pro</title>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
 :root{
   --bg:#f5f7fb;
@@ -27,7 +29,7 @@ body{
 }
 h1{text-align:center;color:var(--primary);margin:22px 0}
 .container{max-width:1200px;margin:auto;padding:16px}
-.grid{display:grid;grid-template-columns:420px 1fr;gap:28px}
+.grid{display:grid;grid-template-columns:380px 1fr;gap:28px}
 .card{
   background:var(--card);
   border-radius:var(--radius);
@@ -54,7 +56,6 @@ button{
 }
 .primary{background:var(--primary);color:#fff}
 .secondary{background:#eef2ff}
-.dark{background:#111827;color:#fff}
 
 .results{
   display:grid;
@@ -76,26 +77,40 @@ button{
   background:#e5e7eb;
   border-radius:999px;
   overflow:hidden;
-  margin-bottom:16px
+  margin-bottom:18px
 }
 .progress-fill{
   height:100%;
   width:0%;
   background:linear-gradient(90deg,var(--primary),var(--success));
-  transition:.6s
 }
 
+.chart-box{
+  height:260px;
+  margin-bottom:20px;
+}
+
+.table-wrap{
+  border:1px solid var(--border);
+  border-radius:14px;
+  overflow:hidden;
+}
+.table-body{
+  max-height:360px;
+  overflow:auto;
+}
 table{
   width:100%;
   border-collapse:collapse;
   font-size:13px
 }
+thead{background:#f1f5f9;position:sticky;top:0}
 th,td{
   padding:10px;
   border-bottom:1px solid var(--border);
   text-align:right
 }
-th:first-child,td:first-child{text-align:left}
+th:first-child,td:first-child{text-align:center}
 
 @media(max-width:900px){
   .grid{grid-template-columns:1fr}
@@ -112,7 +127,6 @@ th:first-child,td:first-child{text-align:left}
 
 <!-- LEFT -->
 <div class="card">
-
   <div class="section">
     <h3>Debt Accounts</h3>
 
@@ -120,21 +134,21 @@ th:first-child,td:first-child{text-align:left}
     <input id="b1" value="5000">
     <label>Debt 1 – APR (%)</label>
     <input id="r1" value="18">
-    <label>Debt 1 – Minimum Payment</label>
+    <label>Debt 1 – Min Payment</label>
     <input id="m1" value="150">
 
     <label>Debt 2 – Balance</label>
     <input id="b2" value="8000">
     <label>Debt 2 – APR (%)</label>
     <input id="r2" value="12">
-    <label>Debt 2 – Minimum Payment</label>
+    <label>Debt 2 – Min Payment</label>
     <input id="m2" value="200">
 
     <label>Debt 3 – Balance</label>
     <input id="b3" value="15000">
     <label>Debt 3 – APR (%)</label>
     <input id="r3" value="6">
-    <label>Debt 3 – Minimum Payment</label>
+    <label>Debt 3 – Min Payment</label>
     <input id="m3" value="300">
   </div>
 
@@ -153,7 +167,7 @@ th:first-child,td:first-child{text-align:left}
   <div class="results">
     <div class="result"><b id="months">–</b><small>Months to Debt-Free</small></div>
     <div class="result"><b id="interest">–</b><small>Total Interest</small></div>
-    <div class="result"><b id="total">–</b><small>Total Paid</small></div>
+    <div class="result"><b id="paid">–</b><small>Total Paid</small></div>
     <div class="result"><b id="date">–</b><small>Debt-Free Date</small></div>
   </div>
 
@@ -161,78 +175,112 @@ th:first-child,td:first-child{text-align:left}
     <div class="progress-fill" id="progress"></div>
   </div>
 
+  <h3>Debt Balance Over Time</h3>
+  <div class="chart-box">
+    <canvas id="chart"></canvas>
+  </div>
+
   <h3>Snowball Payoff Summary</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>Month</th>
-        <th>Remaining Balance</th>
-      </tr>
-    </thead>
-    <tbody id="table"></tbody>
-  </table>
+  <div class="table-wrap">
+    <div class="table-body">
+      <table>
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th>Remaining Balance</th>
+          </tr>
+        </thead>
+        <tbody id="table"></tbody>
+      </table>
+    </div>
+  </div>
 
-  <br>
-  <button class="dark" onclick="window.print()">🖨 Print / Export PDF</button>
 </div>
-
 </div>
 </div>
 
 <script>
-const $ = id => document.getElementById(id);
+let balanceChart;
 
 function money(n){
-  return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
+  return "$" + n.toLocaleString(undefined,{minimumFractionDigits:2});
 }
 
 function calculate(){
   let debts=[
-    {bal:+$("b1").value, rate:+$("r1").value/100/12, min:+$("m1").value},
-    {bal:+$("b2").value, rate:+$("r2").value/100/12, min:+$("m2").value},
-    {bal:+$("b3").value, rate:+$("r3").value/100/12, min:+$("m3").value}
-  ].filter(d=>d.bal>0);
+    {bal:+b1.value, rate:+r1.value/100/12, min:+m1.value},
+    {bal:+b2.value, rate:+r2.value/100/12, min:+m2.value},
+    {bal:+b3.value, rate:+r3.value/100/12, min:+m3.value}
+  ];
 
-  debts.sort((a,b)=>a.bal-b.bal);
-
-  let extra=+$("extra").value;
+  let extraPay=+extra.value;
   let month=0,totalInterest=0,totalPaid=0;
-  let startTotal=debts.reduce((s,d)=>s+d.bal,0);
-  let rows="";
+  let rows="",labels=[],data=[];
+  let startTotal=debts.reduce((a,d)=>a+d.bal,0);
 
-  while(debts.length && month<600){
+  while(debts.some(d=>d.bal>0) && month<600){
     month++;
-    let availableExtra=extra;
+
+    debts.sort((a,b)=>a.bal-b.bal);
+
+    let snowball=extraPay;
+    let totalBal=0;
 
     debts.forEach(d=>{
+      if(d.bal<=0) return;
+
       let interest=d.bal*d.rate;
-      totalInterest+=interest;
       d.bal+=interest;
+      totalInterest+=interest;
+
+      let payment=d.min+snowball;
+      payment=Math.min(payment,d.bal);
+
+      d.bal-=payment;
+      totalPaid+=payment;
+      snowball+=d.min;
+
+      totalBal+=d.bal;
     });
 
-    debts.forEach((d,i)=>{
-      let pay=d.min+(i===0?availableExtra:0);
-      pay=Math.min(pay,d.bal);
-      d.bal-=pay;
-      totalPaid+=pay;
-      if(i===0) availableExtra=0;
-    });
-
-    debts=debts.filter(d=>d.bal>0);
-    let remaining=debts.reduce((s,d)=>s+d.bal,0);
-
-    rows+=`<tr><td>${month}</td><td>${money(remaining)}</td></tr>`;
-    $("progress").style.width=((1-remaining/startTotal)*100).toFixed(1)+"%";
+    labels.push("M"+month);
+    data.push(totalBal);
+    rows+=`<tr><td>${month}</td><td>${money(totalBal)}</td></tr>`;
   }
 
-  $("months").textContent=month;
-  $("interest").textContent=money(totalInterest);
-  $("total").textContent=money(totalPaid);
-  $("table").innerHTML=rows;
+  months.textContent=month;
+  interest.textContent=money(totalInterest);
+  paid.textContent=money(totalPaid);
+  table.innerHTML=rows;
+
+  progress.style.width=((1-data[data.length-1]/startTotal)*100).toFixed(1)+"%";
 
   let d=new Date();
   d.setMonth(d.getMonth()+month);
-  $("date").textContent=d.toLocaleDateString();
+  date.textContent=d.toLocaleDateString();
+
+  balanceChart?.destroy();
+  balanceChart=new Chart(chart,{
+    type:"line",
+    data:{
+      labels,
+      datasets:[{
+        data,
+        borderColor:"#2563eb",
+        backgroundColor:"rgba(37,99,235,.12)",
+        fill:true,
+        tension:.35,
+        pointRadius:2
+      }]
+    },
+    options:{
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        y:{beginAtZero:true,ticks:{callback:v=>"$"+v.toLocaleString()}}
+      }
+    }
+  });
 }
 
 calculate();
